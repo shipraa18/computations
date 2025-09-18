@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual env
+.venv/
+
+# OS/editor
+.DS_Store
+*.swp
+*.swo
+
+# Outputs (generated artifacts)
+outputs/
+!outputs/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
