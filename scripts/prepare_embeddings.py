@@ -5,7 +5,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 # CONFIG
-INPUT_FILE = "../data/dataset.csv"
+INPUT_FILE = "./outputs/cleaned_dataset.csv"
 OUTPUT_METADATA = "../outputs/metadata.parquet"
 OUTPUT_EMB_NPY = "../outputs/embeddings.npy"
 MODEL_NAME = "intfloat/e5-base"
@@ -60,7 +60,7 @@ def main():
     present_cols = [c for c in COLUMNS_TO_USE if c in df.columns]
     print("Using columns:", present_cols)
 
-    # create a stable integer id (FAISS expects int64 ids)
+    # create a stable integer id (FAISS expects int64 ids)#new 
     # If you have an existing stable PK, use that column instead.
     df = df.reset_index(drop=True)
     df["id"] = df.index.astype("int64")
