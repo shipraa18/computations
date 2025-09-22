@@ -5,7 +5,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 # CONFIG
-INPUT_FILE = "./outputs/cleaned_dataset.csv"
+INPUT_FILE = "../data/dataset.csv"
 OUTPUT_METADATA = "../outputs/metadata.parquet"
 OUTPUT_EMB_NPY = "../outputs/embeddings.npy"
 MODEL_NAME = "intfloat/e5-base"

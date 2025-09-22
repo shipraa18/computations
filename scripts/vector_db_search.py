@@ -141,8 +141,9 @@
 # if __name__ == "__main__":
 #     main()
 
-# ----------------------
-# vector_db_search.py - updated version
+
+
+# vector_db_search.py - robust version
 # ----------------------
 import faiss
 import numpy as np
@@ -156,6 +157,7 @@ MODEL_NAME = "intfloat/e5-base"
 TOP_K = 200
 RETURN_K = 5
 
+
 # ----------------------
 # Normalization functions
 # ----------------------
@@ -164,16 +166,14 @@ def normalize_course(text):
     if not text:
         return ""
     text = text.lower().replace(".", "")
-    replacements = {
-        "master of science": "msc",
-        "bachelor of science": "bsc",
-        "bachelor of arts": "ba",
-        "master of business administration": "mba",
-        "bachelor of business administration": "bba"
-    }
-    for k, v in replacements.items():
-        text = text.replace(k, v)
+    text = text.replace("master of science", "msc")
+    text = text.replace("bachelor of science", "bsc")
+    text = text.replace("bachelor of arts", "ba")
+    text = text.replace("master of business administration", "mba")
+    text = text.replace("bachelor of business administration", "bba")
+    # Add more standardizations as needed
     return text
+
 
 def extract_course_from_query(q):
     """Extract main course keyword from user query using exact word match."""
@@ -183,7 +183,7 @@ def extract_course_from_query(q):
         "bsc": ["bsc", "bachelor of science"],
         "ba": ["ba", "bachelor of arts"],
         "mba": ["mba", "master of business administration"],
-        "bba": ["bba", "bachelor of business administration"]
+        "bba": ["bba", "bachelor of business administration"],
     }
     for key, keywords in patterns.items():
         for kw in keywords:
@@ -191,40 +191,34 @@ def extract_course_from_query(q):
                 return key
     return None
 
-def extract_max_fee(q):
-    """Extract max budget from query like 'below 5 lakh', 'under 3.5 lakh'."""
-    q = q.lower().replace(",", "")
-    match = re.search(r"(?:under|below|less than)\s*(\d+\.?\d*)\s*(lakh|k|thousand)?", q)
-    if match:
-        amount = float(match.group(1))
-        unit = match.group(2)
-        if unit == "lakh":
-            return int(amount * 100000)
-        elif unit in ("k", "thousand"):
-            return int(amount * 1000)
-        return int(amount)
-    return None
 
 def parse_currency_to_number(s):
     """Parse course fees like '₹2,50,000', '3 Lakh', '2.5–3 Lakh'."""
     if not s:
         return None
     s = str(s).lower().replace(",", "").replace("₹", "").strip()
+
+    # Handle ranges like "2.5-3 lakh"
     if "–" in s or "-" in s:
         s = s.replace("–", "-")
         parts = s.split("-")
         s = parts[0]  # take lower end
+
+    # Handle "lakh"
     if "lakh" in s or "l" in s:
         nums = re.findall(r"\d+\.?\d*", s)
         return int(float(nums[0]) * 100000) if nums else None
+
     nums = re.findall(r"\d+\.?\d*", s)
     return int(nums[0]) if nums else None
+
 
 def normalize_query_vec(q_vec):
     q_vec = q_vec.astype("float32")
     q_norm = np.linalg.norm(q_vec, axis=1, keepdims=True)
     q_norm[q_norm == 0] = 1e-10
     return q_vec / q_norm
+
 
 # ----------------------
 # Main search
@@ -248,13 +242,14 @@ def main():
         if q.lower() in ("exit", "quit"):
             break
 
-        # Extract course keyword and max fee
+        # Extract course keyword
         course_filter = extract_course_from_query(q)
         if not course_filter:
             print("Could not detect course in query. Try again.")
             continue
 
-        max_fee = extract_max_fee(q) or 10**12  # very high if not specified
+        # Parse budget from query if present (optional)
+        max_fee = 300000  # Example hard-coded. Could parse dynamically if needed.
 
         # Embed query
         q_vec = model.encode([q], convert_to_numpy=True)
@@ -268,18 +263,19 @@ def main():
         cand_meta = meta.set_index("id").loc[I[0]].reset_index()
         cand_meta["score"] = D[0]
 
-        # Strict course filter (exact match)
+        # Filter by course keyword using exact word boundaries
         cand_meta = cand_meta[
-            cand_meta["Course Name_norm"].str.fullmatch(course_filter, na=False) |
-            cand_meta["combined_text_norm"].str.fullmatch(course_filter, na=False)
+            cand_meta["Course Name_norm"].str.contains(rf"\b{course_filter}\b", na=False)
+            | cand_meta["combined_text_norm"].str.contains(rf"\b{course_filter}\b", na=False)
         ]
 
-        # Filter by max fee
+        # Parse fees and filter by max_fee
         cand_meta["fee_num"] = cand_meta["Course Fee (INR)"].apply(parse_currency_to_number)
         cand_meta = cand_meta[cand_meta["fee_num"].notna() & (cand_meta["fee_num"] <= max_fee)]
 
         # Sort by fee first, then embedding score
-        cand_meta = cand_meta.sort_values(by=["fee_num", "score"], ascending=[True, False])
+        cand_meta["fee_sort"] = cand_meta["fee_num"].fillna(10**12)
+        cand_meta = cand_meta.sort_values(by=["fee_sort", "score"], ascending=[True, False])
 
         # Display top results
         if cand_meta.empty:
@@ -288,10 +284,16 @@ def main():
 
         print("\nTop results:")
         for i, row in cand_meta.head(RETURN_K).iterrows():
-            print(f"{row['University Name']} - {row['Course Name']} | Fee: {row.get('Course Fee (INR)', 'N/A')} | score: {row['score']:.4f}")
-            snippet = (row["combined_text"] or "")[:250] + ("..." if len(row["combined_text"]) > 250 else "")
-            print("  snippet:", snippet)
-            print(f"  Duration: {row.get('Course Duration', 'N/A')} | Mode: {row.get('Mode of Study', 'N/A')} | Location: {row.get('Location', 'N/A')}")
+            print(
+                f"{row['University Name']} - {row['Course Name']} "
+                f"| Fee: {row.get('Course Fee (INR)', 'N/A')} "
+                f"| score: {row['score']:.4f}"
+            )
+            snippet = (row["combined_text"] or "")[:250]
+            if len(row["combined_text"]) > 250:
+                snippet += "..."
+            print(" snippet:", snippet)
+
 
 if __name__ == "__main__":
     main()
